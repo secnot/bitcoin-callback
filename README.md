@@ -1,7 +1,10 @@
 # Bitcoin Callback
 
-Bitcoin callback is a bitcoin monitoring and notification micro-service,
+Bitcoin-callback is a bitcoin monitoring and notification micro-service, it provides
+a simple RESTful API to subscribe to bitcoin addresses, and receive notifications each
+time there is a transaction from or to one of them.
 
+These notifications are POST requests to the URL provided by the subscription.
 
 
 ## API
