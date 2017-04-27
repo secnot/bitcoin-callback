@@ -24,13 +24,13 @@ Response Headers
 
 Response Body:
 	
-	{		
-		"id": 33,
+    {		
+        "id": 33,
         "address": "n4r9Ko71tH6t75iM4RuBwXKRn77vNiFBrb",
         "callback_url": "https://client_domain.com/post/url",
-		"created": "2017-01-01T01:26:35",
-		"expiration": 2017-04-01T01:26:35,
-		"state": "canceled",
+        "created": "2017-01-01T01:26:35",
+        "expiration": 2017-04-01T01:26:35,
+        "state": "canceled",
     }
 ```
 
@@ -67,7 +67,7 @@ Request Body
     {
         "address": "n4r9Ko71tH6t75iM4RuBwXKRn77vNiFBrb",
         "callback_url": "http://client_domain.com/post/url",
-		"expiration": "2017-04-01T05:26:35"
+        "expiration": "2017-04-01T05:26:35"
     }
 ```
 
@@ -86,14 +86,13 @@ Response Headers
     status: 202 Accepted
 
 Response Body
-
     {
-		"id": 33,
+        "id": 33,
         "address": "n4r9Ko71tH6t75iM4RuBwXKRn77vNiFBrb",
         "callback_url": "https://client_domain.com/post/url",
-		"created": "2017-04-01T01:26:35",
-		"expiration": "2017-04-01T05:26:35",
-		"state": "active",
+        "created": "2017-04-01T01:26:35",
+        "expiration": "2017-04-01T05:26:35",
+        "state": "active",
     }
 ```
 
@@ -114,10 +113,9 @@ Request Headers
     Content-Type: application/json
 
 Request body
-	
-	{
-		"state": "canceled"
-	}
+    {
+        "state": "canceled"
+    }
 ```
 
 The response status will indicate success (200 - Ok), and include the subscription in the body
@@ -130,13 +128,13 @@ Response Headers
 
 Response Body
 	
-	{
-		"id": 33,
+    {
+        "id": 33,
         "address": "n4r9Ko71tH6t75iM4RuBwXKRn77vNiFBrb",
         "callback_url": "https://client_domain.com/post/url",
-		"created": "2016-04-01T12:44:01",
-		"expiration": "2017-04-01T01:26:35",
-		"state": "canceled",
+        "created": "2016-04-01T12:44:01",
+        "expiration": "2017-04-01T01:26:35",
+        "state": "canceled",
     }
 ```
 
@@ -163,11 +161,10 @@ address
 ```
 Response Headers
 
-	Content-Type: application/json; charset=utf-8
-	Status: 200 Ok
+    Content-Type: application/json; charset=utf-8
+    Status: 200 Ok
 
 Response Body
-
     {
         subscriptions: [
             {"id": 33, "address": "mjgZHpD1AzEixLgcnncod5df6CntYK4Jpi", "callback_url": "...."},
@@ -204,7 +201,7 @@ To show a callback, send a GET request to **/callback/$CALLBACK_ID**
 ```
 Request Headers
 	
-	Content-Type: application/json
+    Content-Type: application/json
 ```
 
 A successful response
@@ -212,22 +209,22 @@ A successful response
 ```
 Response Header
 
-	Content-Type: application/json
-	Status: 200 Ok
+    Content-Type: application/json
+    Status: 200 Ok
 
 Response Body
 
     {
         "id": "51253edb-1652-4907-b4dc-934bccfe2dbe",
-		"subscription": { 
+        "subscription": { 
             "id": 23,
             "address": "15dZHeERPS6rnDgq9Rr2CVdZN4oHEDqyvd"
         },
         "txid": "8cde57ed1b9d7ced7b9d5adc32bb77b9aa6cce63280e93d56b48b37b7982b131",
         "created": 1490471885,
         "amount": 7481310,
-		"retries": 2,
-		"acknowledged": false
+        "retries": 2,
+        "acknowledged": false
     }
 ```
 
@@ -260,7 +257,7 @@ Optional query paramenters:
 ```
 Request Header
 
-	Content-Type: application/json
+    Content-Type: application/json
 ```
 
 Response
@@ -268,8 +265,8 @@ Response
 ```
 Response Header
 
-	Content-Type: application/json
-	Status: 200 Ok
+    Content-Type: application/json
+    Status: 200 Ok
 
 Response Body
 
@@ -320,9 +317,9 @@ Request Headers
 
 Request Body
 
-	{
-		"acknowledged": True
-	}
+    {
+        "acknowledged": True
+    }
 ```
 
 ```
@@ -340,15 +337,16 @@ $ curl -X PATCH -H "Content-Type: application/json" -d '{"acknowledged": true}' 
 ```
 
 
-### Panigation
+### Pagination
 
+```
 {
-    ...
-	"paging": {
+    "paging": {
         "prev": "http://service.com/subscription?page=2&per_page=4"
-		"next": "http://service.com/subscription?page=4&per_page=4""
+        "next": "http://service.com/subscription?page=4&per_page=4""
     }
 }
+```
 
 ### Sending Callbacks
 
@@ -362,22 +360,22 @@ Request Headers
 
 Request Body
 
-	{
-		callback: {
-			"id": "51253edb-1652-4907-b4dc-934bccfe2dbe",
-			"subscription": { 
-				"id": 23,
-				"address": "15dZHeERPS6rnDgq9Rr2CVdZN4oHEDqyvd"
-			},
-			"created": "2017-01-01T01:26:35",
-			"txid": "8cde57ed1b9d7ced7b9d5adc32bb77b9aa6cce63280e93d56b48b37b7982b131",
-			"amount": 7481310,
-		  	"retries": 2,
-		  	"acknowledged": False
-		},
-
-		signature: "ASFDASDFafdsasdfwreQWRasfsafasdf"
-	}
+   {
+       callback: {
+            "id": "51253edb-1652-4907-b4dc-934bccfe2dbe",
+            "subscription": { 
+                "id": 23,
+                "address": "15dZHeERPS6rnDgq9Rr2CVdZN4oHEDqyvd"
+            },
+            "created": "2017-01-01T01:26:35",
+            "txid": "8cde57ed1b9d7ced7b9d5adc32bb77b9aa6cce63280e93d56b48b37b7982b131",
+            "amount": 7481310,
+            "retries": 2,
+            "acknowledged": False
+        },
+        
+        signature: "ASFDASDFafdsasdfwreQWRasfsafasdf"
+    }
 ```
 
 Expected response
@@ -386,7 +384,7 @@ Expected response
 Response Headers
 
     Content-Type: application/json; charset=utf-8
-	Status: 200 Ok or 202 Accepted
+    Status: 200 Ok or 202 Accepted
 ```
 
 
