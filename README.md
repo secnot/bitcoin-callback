@@ -201,7 +201,7 @@ $ curl -X GET "http://service.com/subscription?status=active"
 
 ### Pagination
 
-All request returning an object list, will also include a pagination fields, with the usual
+All request returning an object list, will also include pagination fields, with the usual
 meaning.
 
 ```
@@ -211,6 +211,94 @@ meaning.
         "next": "http://service.com/subscription?page=4&per_page=4""
     }
 }
+```
+
+
+### Sending Callbacks
+
+Once a transaction involving a subscribed address is detected a POST request is issued to 
+**"callback_url"**, the format is as follows
+
+```
+Request Headers
+
+    Content-Type: application/json
+
+Request Body
+
+   {
+       callback: {
+            "id": "51253edb-1652-4907-b4dc-934bccfe2dbe",
+            "subscription": { 
+                "id": 23,
+                "address": "15dZHeERPS6rnDgq9Rr2CVdZN4oHEDqyvd"
+            },
+            "created": "2017-01-01T01:26:35",
+            "txid": "8cde57ed1b9d7ced7b9d5adc32bb77b9aa6cce63280e93d56b48b37b7982b131",
+            "amount": 7481310,
+            "retries": 2,
+            "acknowledged": False
+        },
+        
+        signature: "ASFDASDFafdsasdfwreQWRasfsafasdf"
+    }
+```
+
+Expected response
+
+```
+Response Headers
+
+    Content-Type: application/json; charset=utf-8
+    Status: 200 Ok or 202 Accepted
+```
+
+| Name           | Type          | Description                                         |
+|:-------------- |:------------- |:--------------------------------------------------- |
+| id             | String        | Unique id for the callback                          |
+| subscription   | Object        | Embedded subscription object                        |
+| created        | Integer       | Callback creation time (iso8601)                    |
+| txid           | String        | Bitcoin transaction hash (hexadecimal)              |
+| address        | String        | One of the transaction inputs/outputs               |
+| amount         | Integer       | Amount transfered to/from the address               |
+
+Embedded Subscription:
+
+| Name           | Type          | Description                                         |
+|:-------------- |:------------- |:--------------------------------------------------- |
+| id             | Integer       | Subscription id                                     |
+| address        | String        | Bitcoin address being monitored by the subscription |
+
+
+
+### Acknowledge Callback
+
+Each callbacks is reissued until the retry limit is reached or it is acknowledged by the client sending a PATCH request to **/callback/$CALLBACK_ID**
+
+```
+Request Headers
+
+    Content-Type: application/json
+
+Request Body
+
+    {
+        "acknowledged": True
+    }
+```
+
+```
+Response Headers
+
+    Content-Type: application/json; charset=utf-8
+    Status: 200 Ok
+
+```
+
+###### Curl example
+
+```bash
+$ curl -X PATCH -H "Content-Type: application/json" -d '{"acknowledged": true}' "http://service.com/callback/callback_id"
 ```
 
 
@@ -248,31 +336,11 @@ Response Body
     }
 ```
 
-| Name           | Type          | Description                                         |
-|:-------------- |:------------- |:--------------------------------------------------- |
-| id             | String        | Unique id for the callback                          |
-| subscription   | Object        | Embedded subscription object                        |
-| created        | Integer       | Callback creation time (iso8601)                    |
-| txid           | String        | Bitcoin transaction hash (hexadecimal)              |
-| address        | String        | One of the transaction inputs/outputs               |
-| amount         | Integer       | Amount transfered to/from the address               |
-
-Embedded Subscription:
-
-| Name           | Type          | Description                                         |
-|:-------------- |:------------- |:--------------------------------------------------- |
-| id             | Integer       | Unique id for the callback                          |
-| address        | String        | Bitcoin address being monitored by the subscription |
 
 
 ### Callback List
 
 To list all callbacks, send GET request to **/callback**
-
-Optional query paramenters:
-
-	subscription (integer): Callback subscription id
-	acknowledged (boolean): Select acknowledged or unacknowledged callbacks
 
 ```
 Request Header
@@ -320,81 +388,22 @@ Response Body
     }
 ```
 
+Optional query paramenters:
+
+	subscription (integer): Callback subscription id
+	acknowledged (boolean): Select acknowledged or unacknowledged callbacks
+
+
 ###### Curl example
 
 ```bash
 $ curl -X GET "http://192.168.1.2:8000/callback?subscription=55"
 ```
 
-### Acknowledge Callback
-
-To acknowledge a callback, send a PATCH request to **/callback/$CALLBACK_ID**
-
-```
-Request Headers
-
-    Content-Type: application/json
-
-Request Body
-
-    {
-        "acknowledged": True
-    }
-```
-
-```
-Response Headers
-
-    Content-Type: application/json; charset=utf-8
-    Status: 200 Ok
-
-```
-
-###### Curl example
-
-```bash
-$ curl -X PATCH -H "Content-Type: application/json" -d '{"acknowledged": true}' "http://service.com/callback/callback_id"
-```
 
 
 
-### Sending Callbacks
 
-A POST callback is sent to **"post_url"** when a transaction for a subscribed address is 
-detected.
 
-```
-Request Headers
-
-    Content-Type: application/json
-
-Request Body
-
-   {
-       callback: {
-            "id": "51253edb-1652-4907-b4dc-934bccfe2dbe",
-            "subscription": { 
-                "id": 23,
-                "address": "15dZHeERPS6rnDgq9Rr2CVdZN4oHEDqyvd"
-            },
-            "created": "2017-01-01T01:26:35",
-            "txid": "8cde57ed1b9d7ced7b9d5adc32bb77b9aa6cce63280e93d56b48b37b7982b131",
-            "amount": 7481310,
-            "retries": 2,
-            "acknowledged": False
-        },
-        
-        signature: "ASFDASDFafdsasdfwreQWRasfsafasdf"
-    }
-```
-
-Expected response
-
-```
-Response Headers
-
-    Content-Type: application/json; charset=utf-8
-    Status: 200 Ok or 202 Accepted
-```
 
 
