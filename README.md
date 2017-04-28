@@ -208,7 +208,7 @@ meaning.
 {
     "paging": {
         "prev": "http://service.com/subscription?page=2&per_page=4"
-        "next": "http://service.com/subscription?page=4&per_page=4""
+        "next": "http://service.com/subscription?page=4&per_page=4"
     }
 }
 ```
@@ -369,8 +369,8 @@ Response Body
           "txid": "8cde57ed1b9d7ced7b9d5adc32bb77b9aa6cce63280e93d56b48b37b7982b131",
           "created": 1490471885,
           "amount": 7481310,
-		  "retries": 2,
-		  "acknowledged": False
+	  "retries": 2,
+	  "acknowledged": False
         },
         {
           "id": "0999fd84-80cc-44a6-b3d1-9934fc790d31",
@@ -378,10 +378,10 @@ Response Body
               "id": 33,
               "address": "1KuWLoZuoJgz3N6sLoAwGth9XGm8YuFTGt",
           },
-		  "txid": "073bff6156cd7a5768e319c2ab8025283731ec5ac7da5fce638eeba569993398",
-		  "created": 1490526357,
+	  "txid": "073bff6156cd7a5768e319c2ab8025283731ec5ac7da5fce638eeba569993398",
+	  "created": 1490526357,
           "amount": 1384203713,
-		  "retries": 2,
+	  "retries": 2,
           "acknowledged": False
         },
       ]
