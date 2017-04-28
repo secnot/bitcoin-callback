@@ -9,6 +9,60 @@ These notifications are POST requests to the URL provided by the subscription.
 
 ## API
 
+
+
+
+### Subscribe
+
+To subscribe to a Bitcoin address, send a POST request to **/subscription** with the
+format:
+
+```
+Request Headers
+
+    Content-Type: application/json
+
+Request Body
+
+    {
+        "address": "n4r9Ko71tH6t75iM4RuBwXKRn77vNiFBrb",
+        "callback_url": "http://client_domain.com/post/url",
+        "expiration": "2017-04-01T05:26:35"
+    }
+```
+
+| Name           | Type        | Description                           | Required  |
+|:-------------- |:------------|:------------------------------------- |:----------|
+| address        | String      | Bitcoin address to monitor            | true      |
+| callback_url   | String      | Url where the callback is sent        | true      |
+| expiration     | Integer     | Expiration datetime iso8601(UTC)      | false     | 
+
+Successful response:
+
+```
+Response Headers
+
+    Content-Type: application/json; charset=utf-8
+    status: 202 Accepted
+
+Response Body
+    {
+        "id": 33,
+        "address": "n4r9Ko71tH6t75iM4RuBwXKRn77vNiFBrb",
+        "callback_url": "https://client_domain.com/post/url",
+        "created": "2017-04-01T01:26:35",
+        "expiration": "2017-04-01T05:26:35",
+        "state": "active",
+    }
+```
+
+###### Curl example
+
+```bash
+$ curl -X POST -H "Content-Type: application/json" -d '{"address":"mjgZHpD1AzEixLgcnncod5df6CntYK4Jpi", "callback_url":"http://client.com/calback/url"}' "http://service.com/subscription"
+```
+
+
 ### Subscription Details
 
 To show a subscription, send a GET request to **/subscription/$SUBSCRIPTION_ID**
@@ -54,61 +108,10 @@ $ curl -X GET -H "Contente-Type: application/json" "http://192.168.1.2:8000/subs
 ```
 
 
-
-### Subscribe
-
-To start subscription to a Bitcoin address, send a POST request to **/subscription** with the
-format:
-
-```
-Request Headers
-
-    Content-Type: application/json
-
-Request Body
-
-    {
-        "address": "n4r9Ko71tH6t75iM4RuBwXKRn77vNiFBrb",
-        "callback_url": "http://client_domain.com/post/url",
-        "expiration": "2017-04-01T05:26:35"
-    }
-```
-
-| Name           | Type        | Description                           | Required  |
-|:-------------- |:------------|:------------------------------------- |:----------|
-| address        | String      | Bitcoin address to monitor            | true      |
-| callback_url   | String      | Url where the callback is sent        | false     |
-| expiration     | Integer     | Expiration datetime iso8601(UTC)      | false     | 
-
-Successful response:
-
-```
-Response Headers
-
-    Content-Type: application/json; charset=utf-8
-    status: 202 Accepted
-
-Response Body
-    {
-        "id": 33,
-        "address": "n4r9Ko71tH6t75iM4RuBwXKRn77vNiFBrb",
-        "callback_url": "https://client_domain.com/post/url",
-        "created": "2017-04-01T01:26:35",
-        "expiration": "2017-04-01T05:26:35",
-        "state": "active",
-    }
-```
-
-###### Curl example
-
-```bash
-$ curl -X POST -H "Content-Type: application/json" -d '{"address":"mjgZHpD1AzEixLgcnncod5df6CntYK4Jpi", "callback_url":"http://client.com/calback/url"}' "http://service.com/subscription"
-```
-
-
 ### Cancel Subscription
 
-To stop monitoring a Bitcoin address, send a PATCH request to **/subscription/$SUBSCRIPTION_ID**
+There are two ways to stop a subscription, wait until the expiration date or send a PATCH request 
+to **/subscription/$SUBSCRIPTION_ID**
 
 ```
 Request Headers
@@ -194,6 +197,20 @@ $ curl -X GET "http://service.com/subscription?page=1"
 
 ```bash
 $ curl -X GET "http://service.com/subscription?status=active"
+```
+
+### Pagination
+
+All request returning an object list, will also include a pagination fields, with the usual
+meaning.
+
+```
+{
+    "paging": {
+        "prev": "http://service.com/subscription?page=2&per_page=4"
+        "next": "http://service.com/subscription?page=4&per_page=4""
+    }
+}
 ```
 
 
@@ -340,16 +357,6 @@ $ curl -X PATCH -H "Content-Type: application/json" -d '{"acknowledged": true}' 
 ```
 
 
-### Pagination
-
-```
-{
-    "paging": {
-        "prev": "http://service.com/subscription?page=2&per_page=4"
-        "next": "http://service.com/subscription?page=4&per_page=4""
-    }
-}
-```
 
 ### Sending Callbacks
 
