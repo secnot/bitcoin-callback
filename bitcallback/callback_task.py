@@ -1,25 +1,20 @@
-import multiprocessing
 import threading
 from datetime import datetime, timedelta
 import collections
-import requests
-import queue
 import pickle
 from contextlib import contextmanager
+import requests
+import queue
 
 
-from flask_restplus import marshal
 
-from bitcallback.marshalling import callback_fields
 from bitcallback.models import Callback, Subscription
-from bitcallback.commands import (NEW_CALLBACK, ACK_CALLBACK, EXIT_TASK, 
-        SubscriptionData, CallbackData)
+from bitcallback.commands import (NEW_CALLBACK, ACK_CALLBACK, EXIT_TASK)
 from .callback_sign import sign_callback, verify_callback
 from .thread_pool import ThreadPool
 
 from sqlalchemy import create_engine
-from sqlalchemy.orm import scoped_session, sessionmaker, Session
-from sqlalchemy.ext.declarative import declarative_base
+from sqlalchemy.orm import scoped_session, sessionmaker
 
 CALLBACK_REQUEST_TIMEOUT = 1 # In seconds
 
@@ -28,9 +23,9 @@ CallbackRecord = collections.namedtuple('CallbackRecord', ['id', 'retries', 'las
 
 
 @contextmanager
-def make_session_scope(Session):
+def make_session_scope(db_session):
     """Provide a transactional scope around a series of operations."""
-    session = Session()
+    session = db_session()
     session.expire_on_commit = False
     try:
         yield session
@@ -44,67 +39,69 @@ def make_session_scope(Session):
 
 class CallbackManager(object):
 
-    def __init__(self, db_session, sign_key, 
-            retries=3, retry_period=120, 
-            nthreads=10, recover_db=True):
-        # Dictionary containing all callback indexed by (txid, addr)       
+    def __init__(self,
+                 db_session, sign_key,
+                 retries=3, retry_period=120,
+                 nthreads=10, recover_db=True):
+        # Dictionary containing all callback indexed by (txid, addr)
         self._callbacks = {}
-        
+
         # Queue of callbacks ids to retry ordered by last retry time
-        self._retry_q = collections.deque() 
+        self._retry_q = collections.deque()
 
         # SQLAlchemy session
         self._db_session = db_session
 
-        # Queue where ThreadPool threads stores the ids of sent callbacks 
+        # Queue where ThreadPool threads stores the ids of sent callbacks
         self._sent_q = queue.Queue()
 
         # Lock for every thing excepts DB access
         self._lock = threading.Lock()
-        
+
         # DB access lock
         self._db_lock = threading.Lock()
-        
+
         # Callback signing key
         self.sign_key = sign_key
 
         # Max number of callback retries
         self.retries = retries
 
-        # Wait between sucessive unacknowledged callback tries 
+        # Wait between sucessive unacknowledged callback tries
         self.retry_period = retry_period
 
         # Start request thread pool
-        self._thread_pool = ThreadPool(nthreads=nthreads, 
-                func=CallbackManager._thread_func, 
-                args=(self._sent_q,))
+        self._thread_pool = ThreadPool(
+            nthreads=nthreads,
+            func=CallbackManager._thread_func,
+            args=(self._sent_q,))
 
         # Flag used to notify update_thread to stop
         self._close_flag = threading.Event()
-        
+
         # Start update thread
         self._update_thread = threading.Thread(
-                target=CallbackManager._update_func, 
-                args=(self,), 
-                daemon=True)
+            target=CallbackManager._update_func,
+            args=(self,),
+            daemon=True)
         self._update_thread.start()
 
         # Recover unfinished callbacks from DB
         if not recover_db:
-            return 
+            return
 
         # Load unfinished callbacks from DB
         with self._db_lock:
             with make_session_scope(self._db_session) as session:
                 pending = session.query(Callback).filter(
-                    Callback.acknowledged==False, 
-                    Callback.retries>0).all()
+                    Callback.acknowledged == False,
+                    Callback.retries > 0).all()
 
         # Add unfinished to retry queue.
         pending = sorted(pending, key=lambda c: c.last_retry)
         with self._lock:
-            for cb in pending:
-                record = CallbackRecord(cb.id, cb.retries, cb.last_retry)
+            for cback in pending:
+                record = CallbackRecord(cback.id, cback.retries, cback.last_retry)
                 self._callbacks[record.id] = record
                 self._retry_q.append(record.id)
 
@@ -119,18 +116,18 @@ class CallbackManager(object):
 
         # TODO: Sign callback in the thread/fork
         try:
-            r = requests.post(url, json=json, timeout=CALLBACK_REQUEST_TIMEOUT)
+            requests.post(url, json=json, timeout=CALLBACK_REQUEST_TIMEOUT)
         except requests.RequestException:
             pass
         except Exception:
             pass
 
         sent_q.put(callback_id)
-   
-    def ack_callback(self, callback_id): #Ok
-        """Mark callback as acknolewdged, return False if it didn't exist 
+
+    def ack_callback(self, callback_id):
+        """Mark callback as acknolewdged, return False if it didn't exist
         True otherwise"""
-        
+
         # The callback is removed from the callback dictionary to
         # signify it was acknowledged
         with self._lock:
@@ -147,17 +144,18 @@ class CallbackManager(object):
 
         return True
 
-    def new_callback(self, callback): #Ok
+    def new_callback(self, callback):
         """Add new callback to queue"""
-        cb = Callback.from_callback_data(callback, 
-             retries=self.retries+1)
+        callback = Callback.from_callback_data(callback, retries=self.retries+1)
 
         with self._db_lock:
             with make_session_scope(self._db_session) as session:
-                session.add(cb)
+                session.add(callback)
 
         with self._lock:
-            record = CallbackRecord(cb.id, cb.retries, cb.last_retry)
+            record = CallbackRecord(callback.id,
+                                    callback.retries,
+                                    callback.last_retry)
             self._callbacks[callback.id] = record
             # Set callback as next for delivery
             self._retry_q.appendleft(callback.id)
@@ -175,25 +173,25 @@ class CallbackManager(object):
         with self._lock:
             callback_id = self._retry_q[0]
 
-            # Check if callback was acknowledged 
+            # Check if callback was acknowledged
             callback_record = self._callbacks.get(callback_id, None)
             if callback_record is None:
                 return None
 
             # Check head of the callback is ready to be sent
-            if callback_record.last_retry>retry_limit:
+            if callback_record.last_retry > retry_limit:
                 return None
-       
+
             callback_record = self._retry_q.popleft()
 
         return callback_record
 
     def _send_ready(self):
         """Enqueue ready to send callbacks into thread_pool job queue"""
-       
+
         # Send callbacks ready for a retry
         while len(self._retry_q):
-            
+
             callback_id = self._next_sent()
             if not callback_id:
                 break
@@ -202,12 +200,12 @@ class CallbackManager(object):
             with self._db_lock:
                 with make_session_scope(self._db_session) as session:
                     callback = session.query(Callback).get(callback_id)
-                    json = marshal(callback, callback_fields)
+                    json = callback.to_request()
                     url = callback.subscription.callback_url
 
             # Add to thread pool job queue
             try:
-                job = (callback_id,  json, url)
+                job = (callback_id, json, url)
                 self._thread_pool.add_job(job, block=False)
             except queue.Full:
                 with self._lock:
@@ -245,23 +243,23 @@ class CallbackManager(object):
                 with self._db_lock:
                     with make_session_scope(self._db_session) as session:
                         update_fields = {
-                            'retries': record.retries, 
+                            'retries': record.retries,
                             'last_retry': record.last_retry}
                         session.query(Callback).filter_by(id=record.id)\
                             .update(update_fields)
-            
+
             except queue.Empty:
                 # No callbacks remainig at the queue
-                break 
+                break
 
     @staticmethod
-    def _update_func(self):
+    def _update_func(callback_manager):
         """Function used by periodic update thread"""
         while True:
-            if self._close_flag.is_set():
+            if callback_manager._close_flag.is_set():
                 break
-            self._send_ready()
-            self._process_sent()
+            callback_manager._send_ready()
+            callback_manager._process_sent()
 
     def __len__(self):
         return len(self._callbacks)
@@ -280,31 +278,34 @@ def configure_db(db_uri=None):
         autoflush=False,
         expire_on_commit=False,
         bind=engine))
-    
+
     return db_session
 
 
-def callback_task(input_q=None, sign_key=None, settings={}):
+def callback_task(input_q=None, sign_key=None, settings=None):
     """
     Argumenst:
         key (ecdsa.SigningKey): Used for callback signing
         input_q (multiprocessing.Queue): New callbacks ((NEW, txid, addr))
         settings (dict): Configuration constants
-    """     
+    """
+    if not settings:
+        settings = {}
+
     # We need to create a new DB session for the process, the current
     # one is also being used by flask main process
     db_session = configure_db()
 
     # CallbackManager handles all the logic
     callback_manager = CallbackManager(
-            db_session, sign_key, 
-            retries=settings['RETRIES'], 
-            nthreads=settings['THREADS'],
-            retry_period=settings['RETRY_PERIOD'])
-   
+        db_session, sign_key,
+        retries=settings['RETRIES'],
+        nthreads=settings['THREADS'],
+        retry_period=settings['RETRY_PERIOD'])
+
     # Main dispatch loop
     while True:
-        
+
         try:
             cmd, data = input_q.get(timeout=1)
 
@@ -312,11 +313,11 @@ def callback_task(input_q=None, sign_key=None, settings={}):
                 # data: <commands.CallbackData>
                 data = pickle.loads(data)
                 callback_manager.new_callback(data)
-                    
+
             elif cmd == ACK_CALLBACK:
                 # data: <commands.CallbackData.id> -> string
                 callback_manager.ack_callback(data)
-            
+
             elif cmd == EXIT_TASK:
                 callback_manager.close()
 

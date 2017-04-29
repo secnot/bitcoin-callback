@@ -1,19 +1,22 @@
-import ecdsa
+"""
+callback_sign
+
+ECDSA signature for callback requests
+"""
 import hashlib
-from datetime import datetime
 import base64
-import copy
+
+import ecdsa
 
 
 def _serialize(callback):
-    serialized = (
-            str(callback['id']) +
-            str(callback['created']) +
-            callback['txid'] +
-            callback['addr'] +
-            str(callback['amount'])).encode()
+    serialized = (str(callback['id']) +
+                  str(callback['created']) +
+                  callback['txid'] +
+                  callback['addr'] +
+                  str(callback['amount'])).encode()
     return serialized
- 
+
 
 def sign_callback(skey, callback):
     """Add signature to callback json dict

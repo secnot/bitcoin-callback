@@ -1,3 +1,9 @@
+"""
+marshalling
+
+REST api response marshalling fields
+"""
+
 from flask_restplus import fields
 from .fields import IsoDateTime
 
@@ -8,12 +14,12 @@ pagination_fields = {
 }
 
 subscription_fields = {
-        'id': fields.Integer,
-        'address': fields.String,
-        'callback_url': fields.String,
-        'created': IsoDateTime,
-        'expiration': IsoDateTime,
-        'state': fields.String,
+    'id': fields.Integer,
+    'address': fields.String,
+    'callback_url': fields.String,
+    'created': IsoDateTime,
+    'expiration': IsoDateTime,
+    'state': fields.String,
 }
 
 subscription_list_fields = {
@@ -34,8 +40,9 @@ callback_fields = {
     'created': IsoDateTime,
     'last_retry': IsoDateTime,
     'retries': fields.Integer,
-    'acknowledged': fields.Boolean}
-        
+    'acknowledged': fields.Boolean
+}
+
 
 callback_list_fields = {
     'callbacks': fields.List(fields.Nested(callback_fields)),

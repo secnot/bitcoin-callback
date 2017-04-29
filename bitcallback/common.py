@@ -1,3 +1,9 @@
+"""
+common
+
+Some common functions/constants to several files
+"""
+
 import base64
 import uuid
 

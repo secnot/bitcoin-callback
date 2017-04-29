@@ -1,3 +1,8 @@
+"""
+commands.py
+
+Common constants and classes used for threads/processes messaging
+"""
 from collections import namedtuple
 
 # Start/Stop task
@@ -7,7 +12,7 @@ START_TASK = "start"  # Restart paused task
 
 # Bitcoin monitoring task
 NEW_SUBSCRIPTION = "new_subscription"    # Start monitoring bitcoin address
-CANCEL_SUBSCRIPTION  = "cancel_subscription"    # Stop monitoring bitcoin address
+CANCEL_SUBSCRIPTION = "cancel_subscription"    # Stop monitoring bitcoin address
 
 # Callback task
 NEW_CALLBACK = "new_callback"  # New callback ready to send

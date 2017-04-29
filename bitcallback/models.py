@@ -1,13 +1,15 @@
-from sqlalchemy import (Column, Integer, BigInteger, 
-        String, Unicode, DateTime, Enum, Boolean, ForeignKey)
+from sqlalchemy import (Column, Integer, BigInteger, String,
+                        Unicode, DateTime, Enum, Boolean, ForeignKey)
 from sqlalchemy.orm import relationship
 
 from flask import abort
+from flask_restplus import marshal
 from datetime import datetime, timedelta
 import enum
-import os
 
 
+from bitcallback.sign_callback import sign_callback
+from bitcallback.marshalling import callback_fields
 from bitcallback.common import unique_id
 from bitcallback.database import Base
 
@@ -18,7 +20,7 @@ class SubscriptionState(enum.Enum):
     suspended = 'suspended'
 
     def __str__(self):
-        # Hide class name 
+        # Hide class name
         return self.name
 
 class CallbackState(enum.Enum):
@@ -66,7 +68,7 @@ class BaseMixin(object):
         r = cls(**kw)
         Base.session.add(r)
         return r
-    
+
     def save(self):
         Base.session.add(self)
 
@@ -74,15 +76,16 @@ class BaseMixin(object):
         Base.session.delete(self)
 
     def __repr__(self):
-        values = ', '.join("%s=%r" % (n, getattr(self, n)) for n in self.__table__.c.keys() if n not in self._repr_hide)
-        return "%s(%s)" % (self.__class__.__name__, values)
+        attrs = [n for n in self.__table__.c.keys() if n not in self._repr_hide]
+        name_val_lst = ', '.join("%s=%r" % (n, getattr(self, n)) for n in attrs)
+        return "%s(%s)" % (self.__class__.__name__, name_val_lst)
 
     def filter_string(self):
         return self.__str__()
 
 
 class Subscription(Base, BaseMixin):
-    # TODO: THIS MODEL IS INMUTABLE and once it's created the client 
+    # TODO: THIS MODEL IS INMUTABLE and once it's created the client
     # can only change state to canceled
     __tablename__ = 'subscriptions'
 
@@ -96,15 +99,15 @@ class Subscription(Base, BaseMixin):
 
     # Date of creation
     created = Column(DateTime,
-            default=lambda: datetime.utcnow().replace(microsecond=0))
+                     default=lambda: datetime.utcnow().replace(microsecond=0))
 
     # Date this subscription is terminated
-    expiration = Column(DateTime, 
+    expiration = Column(DateTime,
             default=lambda: (datetime.utcnow()-timedelta(days=30)).replace(microsecond=0))
 
     #
-    state = Column(Enum(SubscriptionState), 
-            default=SubscriptionState.active)
+    state = Column(Enum(SubscriptionState),
+                   default=SubscriptionState.active)
 
     #
     callbacks = relationship('Callback', backref='subscription', lazy='joined')
@@ -112,7 +115,7 @@ class Subscription(Base, BaseMixin):
 
 
 class Callback(Base, BaseMixin):
-
+    """Callback is the record for transaction notifications"""
     __tablename__ = 'callbacks'
 
     id = Column(String(32), primary_key=True, default=unique_id)
@@ -124,9 +127,9 @@ class Callback(Base, BaseMixin):
     amount = Column(BigInteger, default=0)
 
     # Creation and last sent times
-    created = Column(DateTime, default=datetime.utcnow) 
-    last_retry = Column(DateTime, 
-            default=lambda: datetime.utcnow()-timedelta(minutes=10))
+    created = Column(DateTime, default=datetime.utcnow)
+    last_retry = Column(DateTime,
+                        default=lambda: datetime.utcnow()-timedelta(minutes=10))
 
     # Remaining retries (decremented each time it's sent)
     retries = Column(Integer, default=3)
@@ -134,30 +137,33 @@ class Callback(Base, BaseMixin):
     # Callback was acknowledged
     acknowledged = Column(Boolean, default=False)
 
-    def callback_request(self, skey):
+    def to_request(self, sign_key=None):
         """Generate json callback request
-        
+
         Arguments:
-            skey (ecdsa.SigningKey): Private signing key
+            sign_key (ecdsa.SigningKey): Private signing key
         """
-        callback = self.to_dict(ignore=['ack', 'retries', 'last_retry'])
-        callback['created'] = callback['created'].timestamp()
-        return sign_callback(sign_key, callback)
+        json = marshal(self, callback_fields)
+
+        if sign_key:
+            return sign_callback(sign_key, self)
+        else:
+            return json
 
 
     @classmethod
-    def from_callback_data(cls, cb, **kwargs):
+    def from_callback_data(cls, callback_data, **kwargs):
         """Create callback record from CallbackData object..
-        
+
         Arguments:
-            cb (CallbackData): Command data
+            callback_data (CallbackData): Command data
             kwargs (dict):
         """
         cb_kwargs = {
-            'id': cb.id,
-            'subscription_id': cb.subscription.id,
-            'txid': cb.txid,
-            'amount': cb.amount}
+            'id': callback_data.id,
+            'subscription_id': callback_data.subscription.id,
+            'txid': callback_data.txid,
+            'amount': callback_data.amount}
 
         cb_kwargs.update(kwargs)
 

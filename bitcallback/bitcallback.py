@@ -1,10 +1,13 @@
-from flask import Flask
-import os
-from multiprocessing import Process, Queue
-import ecdsa
-import atexit
+"""bitcallback.py
 
-from bitcallback.commands import *
+Create and initialize flask app and async tasks
+"""
+import atexit
+from multiprocessing import Process, Queue
+from flask import Flask
+import ecdsa
+
+from bitcallback.commands import EXIT_TASK
 from bitcallback.bitmon_task import bitcoin_task
 from bitcallback.callback_task import callback_task
 
@@ -18,7 +21,7 @@ def create_app(name):
 
     app = Flask(name)
     app.config.from_object('config')
-    
+
     bitcoin_conf = app.config['BITCOIN_CONF']
     callback_conf = app.config['CALLBACK_CONF']
 
@@ -29,16 +32,16 @@ def create_app(name):
     callback_q = Queue(QUEUE_SIZE)
 
     # Load ecdsa request signing key
-    with open(callback_conf['SIGNKEY_PATH'], 'r') as f:
-        key = f.read()
+    with open(callback_conf['SIGNKEY_PATH'], 'r') as key_file:
+        key = key_file.read()
     sign_key = ecdsa.SigningKey.from_pem(key)
 
     # Initialize and start bitcoin and callback processes
     bit_kwargs = {
-        'input_q': bitmon_q, 
+        'input_q': bitmon_q,
         'callback_q': callback_q,
         'settings': bitcoin_conf}
-   
+
 
     call_kwargs = {
         'input_q': callback_q,
@@ -47,20 +50,22 @@ def create_app(name):
 
     bit_task = Process(target=bitcoin_task, kwargs=bit_kwargs)
     call_task = Process(target=callback_task, kwargs=call_kwargs)
-    
+
     bit_task.start()
     call_task.start()
 
-    # When a kill (SIGTERM) signal is received notify other tasks
-    def cleanUp():
+    def clean_up():
+        """Send termination command to other tasks and wait until they
+        exit"""
         bitmon_q.put((EXIT_TASK, None))
         callback_q.put((EXIT_TASK, None))
         bitmon_q.close()
         callback_q.close()
-        #bit_task.join()
-        #call_task.join()
-    
-    #atexit.register(cleanUp)
+        bit_task.join()
+        call_task.join()
+
+    # When a kill (SIGTERM) signal is received close gracefully
+    atexit.register(clean_up)
 
     return app, bitmon_q, callback_q
 
