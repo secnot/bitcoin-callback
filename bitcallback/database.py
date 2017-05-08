@@ -1,31 +1,37 @@
 """
-database:
+database.py
 
-Database creation and configuration functions
+Tasks DB session initialization and related functions.
 """
+from contextlib import contextmanager
 from sqlalchemy import create_engine
 from sqlalchemy.orm import scoped_session, sessionmaker
-from sqlalchemy.ext.declarative import declarative_base
-from bitcallback.query import PaginatedQuery
 
-engine = create_engine('sqlite:////home/secnot/bitcoin-callback/app.db')
+@contextmanager
+def make_session_scope(db_session):
+    """Provide a transactional scope around a series of operations."""
+    session = db_session()
+    session.expire_on_commit = False
+    try:
+        yield session
+        session.commit()
+    except:
+        session.rollback()
+        raise
+    finally:
+        session.close()
 
-db_session = scoped_session(sessionmaker(
-    autocommit=False,
-    autoflush=False,
-    bind=engine,
-    query_cls=PaginatedQuery))
 
-Base = declarative_base()
-Base.query = db_session.query_property()
-Base.session = db_session
+def configure_db(db_uri=None):
+    # Create a new db session for the process
+    engine = create_engine(db_uri)
 
-def init_db():
-    """
-    import all modules here that might define models so that
-    they will be registered properly on the metadata.  Otherwise
-    you will have to import them first before calling init_db()
-    """
-    import bitcallback.models
-    Base.metadata.create_all(bind=engine)
+    db_session = scoped_session(sessionmaker(
+        autocommit=False,
+        autoflush=False,
+        expire_on_commit=False,
+        bind=engine))
+
+    return db_session
+
 

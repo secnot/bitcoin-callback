@@ -1,46 +1,31 @@
 import threading
+from multiprocessing import Process, Queue
 from datetime import datetime, timedelta
 import collections
+import logging
 import pickle
-from contextlib import contextmanager
 import requests
 import queue
-
-
+import json
 
 from bitcallback.models import Callback, Subscription
 from bitcallback.commands import (NEW_CALLBACK, ACK_CALLBACK, EXIT_TASK)
-from .callback_sign import sign_callback, verify_callback
-from .thread_pool import ThreadPool
+from bitcallback.database import make_session_scope, configure_db
+from bitcallback.thread_pool import ThreadPool
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import scoped_session, sessionmaker
 
 CALLBACK_REQUEST_TIMEOUT = 1 # In seconds
 
 
 CallbackRecord = collections.namedtuple('CallbackRecord', ['id', 'retries', 'last_retry'])
 
-
-@contextmanager
-def make_session_scope(db_session):
-    """Provide a transactional scope around a series of operations."""
-    session = db_session()
-    session.expire_on_commit = False
-    try:
-        yield session
-        session.commit()
-    except:
-        session.rollback()
-        raise
-    finally:
-        session.close()
+logger = logging.getLogger("Callback")
 
 
 class CallbackManager(object):
 
     def __init__(self,
-                 db_session, sign_key,
+                 db_session,
                  retries=3, retry_period=120,
                  nthreads=10, recover_db=True):
         # Dictionary containing all callback indexed by (txid, addr)
@@ -61,9 +46,6 @@ class CallbackManager(object):
         # DB access lock
         self._db_lock = threading.Lock()
 
-        # Callback signing key
-        self.sign_key = sign_key
-
         # Max number of callback retries
         self.retries = retries
 
@@ -73,7 +55,7 @@ class CallbackManager(object):
         # Start request thread pool
         self._thread_pool = ThreadPool(
             nthreads=nthreads,
-            func=CallbackManager._thread_func,
+            func=CallbackManager._send_thread_func,
             args=(self._sent_q,))
 
         # Flag used to notify update_thread to stop
@@ -109,12 +91,11 @@ class CallbackManager(object):
         return self._db_session()
 
     @staticmethod
-    def _thread_func(job, sent_q):
+    def _send_thread_func(job, sent_q):
         """Function used by ThreadPool to send callbacks, one sent
         it places its id on sent_q"""
         callback_id, json, url = job
 
-        # TODO: Sign callback in the thread/fork
         try:
             requests.post(url, json=json, timeout=CALLBACK_REQUEST_TIMEOUT)
         except requests.RequestException:
@@ -266,64 +247,99 @@ class CallbackManager(object):
 
 
 
-def configure_db(db_uri=None):
-    # Create a new db session for the process
-    if not db_uri:
-        db_uri = 'sqlite:////home/secnot/bitcoin-callback/app.db'
 
-    engine = create_engine(db_uri)
+class CallbackTask(object):
 
-    db_session = scoped_session(sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        expire_on_commit=False,
-        bind=engine))
+    QUEUE_SIZE = 4000
+    
+    def __init__(self, config):
+        """
+        Arguments:
+            config: flask app config
+        """
+        self._input_q = Queue(CallbackTask.QUEUE_SIZE)
 
-    return db_session
+        settings = {'DB_URI': config['SQLALCHEMY_DATABASE_URI']}
+        settings.update(config['CALLBACK_CONF'])
+        
+        self._task = Process(target=CallbackTask._task_func, 
+                             args=(self._input_q, settings))
+        self._task.start()
+
+    @staticmethod
+    def _task_func(input_q, settings):
+        """
+        Argumenst:
+            input_q (multiprocessing.Queue): command input ()
+            settings (dict):
+        """
+        logger.debug("Task running")
+        
+        # We need to create a new DB session for the process, the existing
+        # one can only be used by flask main process and its threads
+        db_session = configure_db(settings['DB_URI'])
+
+        # CallbackManager handles all the logic
+        callback_manager = CallbackManager(
+                                db_session=db_session,
+                                retries=settings['RETRIES'], 
+                                retry_period=settings['RETRY_PERIOD'],
+                                nthreads=settings['NTHREADS'])
+
+        # Main dispatch loop
+        while True:
+
+            try:
+                cmd, data = input_q.get(timeout=1)
+
+                if cmd == NEW_CALLBACK:
+                    # data: <commands.CallbackData>
+                    data = pickle.loads(data)
+                    logger.debug("New Callback (id: {})".format(data.id))
+                    callback_manager.new_callback(data)
+
+                elif cmd == ACK_CALLBACK:
+                    # data: <commands.CallbackData.id> -> string
+                    logger.debug("Ack Callback (id: {})".format(data.id))
+                    callback_manager.ack_callback(data)
+
+                elif cmd == EXIT_TASK:
+                    callback_manager.close()
+                    break
+
+                else:
+                    logger.debug("Unknown command {}".format(cmd))
+
+            except queue.Empty:
+                continue
+
+        input_q.close()
+        exit(0)
+
+    def new_callback(self, callback_data):
+        self._input_q.put((NEW_CALLBACK, pickle.dumps(callback_data)))
+
+    def ack_callback(self, callback_id):
+        self._input_q.put((ACK_CALLBACK, callb.id))
+
+    def close(self):
+        self._input_q.put((EXIT_TASK, None))
+        self._input_q.close()
+        self._task.join()
 
 
-def callback_task(input_q=None, sign_key=None, settings=None):
-    """
-    Argumenst:
-        key (ecdsa.SigningKey): Used for callback signing
-        input_q (multiprocessing.Queue): New callbacks ((NEW, txid, addr))
-        settings (dict): Configuration constants
-    """
-    if not settings:
-        settings = {}
 
-    # We need to create a new DB session for the process, the current
-    # one is also being used by flask main process
-    db_session = configure_db()
 
-    # CallbackManager handles all the logic
-    callback_manager = CallbackManager(
-        db_session, sign_key,
-        retries=settings['RETRIES'],
-        nthreads=settings['THREADS'],
-        retry_period=settings['RETRY_PERIOD'])
 
-    # Main dispatch loop
-    while True:
 
-        try:
-            cmd, data = input_q.get(timeout=1)
 
-            if cmd == NEW_CALLBACK:
-                # data: <commands.CallbackData>
-                data = pickle.loads(data)
-                callback_manager.new_callback(data)
 
-            elif cmd == ACK_CALLBACK:
-                # data: <commands.CallbackData.id> -> string
-                callback_manager.ack_callback(data)
 
-            elif cmd == EXIT_TASK:
-                callback_manager.close()
 
-            else:
-                # TODO:Unexpexted command log error
-                pass
-        except queue.Empty:
-            continue
+
+
+
+
+
+
 

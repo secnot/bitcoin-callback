@@ -1,10 +1,11 @@
 # Bitcoin Callback
 
 Bitcoin-callback is a bitcoin monitoring and notification micro-service, it provides
-a simple RESTful API to subscribe to bitcoin addresses, and receive notifications each
-time there is a transaction from or to one of them.
+a simple RESTful API to subscribe to bitcoin addresses, and receive notifications when
+there is a transaction from or to one of them.
 
 These notifications are POST requests to the URL provided by the subscription.
+
 
 
 ## API
@@ -217,7 +218,7 @@ meaning.
 ### Sending Callbacks
 
 Once a transaction involving a subscribed address is detected a POST request is issued to 
-**"callback_url"**, the format is as follows
+**"callback_url"**, with the following format.
 
 ```
 Request Headers
@@ -227,20 +228,16 @@ Request Headers
 Request Body
 
    {
-       callback: {
-            "id": "51253edb-1652-4907-b4dc-934bccfe2dbe",
-            "subscription": { 
-                "id": 23,
-                "address": "15dZHeERPS6rnDgq9Rr2CVdZN4oHEDqyvd"
-            },
-            "created": "2017-01-01T01:26:35",
-            "txid": "8cde57ed1b9d7ced7b9d5adc32bb77b9aa6cce63280e93d56b48b37b7982b131",
-            "amount": 7481310,
-            "retries": 2,
-            "acknowledged": False
+        "id": "51253edb-1652-4907-b4dc-934bccfe2dbe",
+        "subscription": { 
+            "id": 23,
+            "address": "15dZHeERPS6rnDgq9Rr2CVdZN4oHEDqyvd"
         },
-        
-        signature: "ASFDASDFafdsasdfwreQWRasfsafasdf"
+        "created": "2017-01-01T01:26:35",
+        "txid": "8cde57ed1b9d7ced7b9d5adc32bb77b9aa6cce63280e93d56b48b37b7982b131",
+        "amount": 7481310,
+        "retries": 2,
+        "acknowledged": False
     }
 ```
 

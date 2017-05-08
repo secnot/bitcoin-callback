@@ -9,39 +9,12 @@ import datetime
 import time
 import json
 
-from sqlalchemy import create_engine
-from sqlalchemy.orm import scoped_session, sessionmaker
-from sqlalchemy.ext.declarative import declarative_base 
-from sqlalchemy.pool import QueuePool, NullPool, StaticPool
-from bitcallback.models import Callback, Subscription
-
 from http.server import BaseHTTPRequestHandler, HTTPServer
 
+from .database import create_memory_db
 
-
-
-def create_memory_db():
-    """Configure temp memory database for testing"""
-    engine = create_engine('sqlite:///:memory:',
-        connect_args={'check_same_thread':False},
-        poolclass=StaticPool) 
-    # See for explanation on engine options:
-    # http://www.sameratiani.com/2013/09/17/flask-unittests-with-in-memory-sqlite.html
-    # http://sqlite.org/inmemorydb.html
-   
-    db_session = scoped_session(sessionmaker(
-        autocommit=False,
-        autoflush=False,
-        expire_on_commit=False,
-        bind=engine))
- 
-    # Create model tables
-    Callback.metadata.create_all(engine)
-    Subscription.metadata.create_all(engine)
-    return db_session
-
-
-
+from bitcallback.models import Callback, Subscription
+from bitcallback.database import make_session_scope
 
 class TestCallbackRequests(TestCase):
     """Test CallbackManager actuallly send callbacks with a fake server"""
@@ -67,14 +40,12 @@ class TestCallbackRequests(TestCase):
         # Initialized in memory test db
         self.db_session = create_memory_db()
  
-        # Subscription where all test callbacks will oritinate
-        self.subscription = Subscription(
-            address='n2SjFgAhHAv8PcTuq5x2e9sugcXDpMTzX7',
-            callback_url='http://localhost:9779') 
-        session = self.db_session()
-        session.add(self.subscription)
-        session.commit()
-        session.close()
+        # Subscription where all test callbacks will originate
+        with make_session_scope(self.db_session) as session:
+            self.subscription = Subscription(
+                address='n2SjFgAhHAv8PcTuq5x2e9sugcXDpMTzX7',
+                callback_url='http://localhost:9779') 
+            session.add(self.subscription)
 
         self.subscription_data = SubscriptionData(
             id=self.subscription.id,
@@ -95,8 +66,8 @@ class TestCallbackRequests(TestCase):
 
         # Launch server
         self.callback_manager = CallbackManager(
-            self.db_session, 'a valid ec signing key', 
-            retries=3, nthreads=5, retry_period=30)
+            self.db_session, retries=3,
+            nthreads=5, retry_period=30)
 
     def tearDown(self):
         self.callback_manager.close()
@@ -133,13 +104,11 @@ class TestCallbackDB(TestCase):
         self.db_session = create_memory_db()
 
         # Create subscription that will be used during tests
-        self.subscription = Subscription(
-            address='n2SjFgAhHAv8PcTuq5x2e9sugcXDpMTzX7',
-            callback_url='http://localhost:8080') 
-        session = self.db_session()
-        session.add(self.subscription)
-        session.commit()
-        session.close()
+        with make_session_scope(self.db_session) as session:
+            self.subscription = Subscription(
+                address='n2SjFgAhHAv8PcTuq5x2e9sugcXDpMTzX7',
+                callback_url='http://localhost:8080') 
+            session.add(self.subscription)
 
         # Subscription as a command data
         self.subscription_data = SubscriptionData(
@@ -149,8 +118,8 @@ class TestCallbackDB(TestCase):
             callback_url=self.subscription.callback_url)
 
         self.callback_manager = CallbackManager(
-            self.db_session, 'a valid ec signing key', 
-            retries=3, nthreads=5, retry_period=30)
+            self.db_session, retries=3,
+            retry_period=30, nthreads=5)
         
     def tearDown(self):
         self.callback_manager.close()
@@ -220,16 +189,16 @@ class TestCallbackDB(TestCase):
         # Restart
         self.callback_manager.close()
         new_manager = CallbackManager(
-            self.db_session, 'a valid ec signing key', 
-            retries=30, nthreads=5, retry_period=30,
+            self.db_session, retries=30,
+            nthreads=5, retry_period=30,
             recover_db=True)
         self.assertEqual(len(new_manager), 1)
         new_manager.close()
 
         # Try once again with recovery disabled
         another_manager = CallbackManager(
-            self.db_session, 'a valid ec signing key', 
-            retries=30, nthreads=5, retry_period=30,
+            self.db_session, retries=30,
+            nthreads=5, retry_period=30,
             recover_db=False)
         self.assertEqual(len(another_manager), 0)
         another_manager.close()

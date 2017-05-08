@@ -82,6 +82,10 @@ class TransactionMonitor(object):
     def _get_cache(self):
         return self._cache
 
+    @property
+    def current_block(self):
+        return self._current_block
+
     def get_confirmed(self):
         """
         Get confirmed transactions involving any of the monitored addresses

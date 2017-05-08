@@ -1,6 +1,4 @@
-from sqlalchemy import (Column, Integer, BigInteger, String,
-                        Unicode, DateTime, Enum, Boolean, ForeignKey)
-from sqlalchemy.orm import relationship
+from flask_sqlalchemy import SQLAlchemy
 
 from flask import abort
 from flask_restplus import marshal
@@ -8,10 +6,11 @@ from datetime import datetime, timedelta
 import enum
 
 
-from bitcallback.sign_callback import sign_callback
 from bitcallback.marshalling import callback_fields
 from bitcallback.common import unique_id
-from bitcallback.database import Base
+from bitcallback.commands import SubscriptionData, CallbackData
+
+
 
 class SubscriptionState(enum.Enum):
     active = 'active'
@@ -32,110 +31,71 @@ class CallbackState(enum.Enum):
     def __str__(self):
         return self.name
 
-class BaseMixin(object):
-    _repr_hide = ['created_at', 'updated_at']
 
-   # @classmethod
-   # def query(cls):
-   #     return db.session.query(cls)
+db = SQLAlchemy()
 
-    @classmethod
-    def get(cls, id):
-        return cls.query.get(id)
-
-    @classmethod
-    def get_by(cls, **kw):
-        return cls.query.filter_by(**kw).first()
-
-    @classmethod
-    def get_or_404(cls, id):
-        rv = cls.get(id)
-        if rv is None:
-            abort(404)
-        return rv
-
-    @classmethod
-    def get_or_create(cls, **kw):
-        r = cls.get_by(**kw)
-        if not r:
-            r = cls(**kw)
-            Base.session.add(r)
-
-        return r
-
-    @classmethod
-    def create(cls, **kw):
-        r = cls(**kw)
-        Base.session.add(r)
-        return r
-
-    def save(self):
-        Base.session.add(self)
-
-    def delete(self):
-        Base.session.delete(self)
-
-    def __repr__(self):
-        attrs = [n for n in self.__table__.c.keys() if n not in self._repr_hide]
-        name_val_lst = ', '.join("%s=%r" % (n, getattr(self, n)) for n in attrs)
-        return "%s(%s)" % (self.__class__.__name__, name_val_lst)
-
-    def filter_string(self):
-        return self.__str__()
-
-
-class Subscription(Base, BaseMixin):
+class Subscription(db.Model):
     # TODO: THIS MODEL IS INMUTABLE and once it's created the client
     # can only change state to canceled
     __tablename__ = 'subscriptions'
 
-    id = Column(Integer, primary_key=True, autoincrement=True)
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
 
     # Monitored bitcoin address
-    address = Column(String(40))
+    address = db.Column(db.String(40))
 
     # Url where the callbacks are sent
-    callback_url = Column(Unicode(1024), default='')
+    callback_url = db.Column(db.Unicode(1024), default='')
 
     # Date of creation
-    created = Column(DateTime,
+    created = db.Column(db.DateTime,
                      default=lambda: datetime.utcnow().replace(microsecond=0))
 
     # Date this subscription is terminated
-    expiration = Column(DateTime,
-            default=lambda: (datetime.utcnow()-timedelta(days=30)).replace(microsecond=0))
+    expiration = db.Column(db.DateTime,
+            default=lambda: (datetime.utcnow()+timedelta(days=30)).replace(microsecond=0))
 
     #
-    state = Column(Enum(SubscriptionState),
+    state = db.Column(db.Enum(SubscriptionState),
                    default=SubscriptionState.active)
 
     #
-    callbacks = relationship('Callback', backref='subscription', lazy='joined')
+    callbacks = db.relationship('Callback', backref='subscription', lazy='joined')
+
+    def to_subscription_data(self):
+        """Equivalent SubscriptionData to the model"""
+        return SubscriptionData(id = self.id,
+                                address = self.address,
+                                callback_url = self.callback_url,
+                                expiration = self.expiration)
+
+    def __str__(self):
+        return "Subscription {} for {} (exp {})".format(self.id, self.address, self.expiration)
 
 
 
-class Callback(Base, BaseMixin):
+class Callback(db.Model):
     """Callback is the record for transaction notifications"""
     __tablename__ = 'callbacks'
 
-    id = Column(String(32), primary_key=True, default=unique_id)
+    id = db.Column(db.String(32), primary_key=True, default=unique_id)
 
-    subscription_id = Column(Integer, ForeignKey('subscriptions.id'))
+    subscription_id = db.Column(db.Integer, db.ForeignKey('subscriptions.id'))
 
     # Bitcoin transaction hash/id and addrs for this callback
-    txid = Column(String(64))
-    amount = Column(BigInteger, default=0)
+    txid = db.Column(db.String(64))
+    amount = db.Column(db.BigInteger, default=0)
 
     # Creation and last sent times
-    created = Column(DateTime, default=datetime.utcnow)
-    last_retry = Column(DateTime,
+    created = db.Column(db.DateTime, default=datetime.utcnow)
+    last_retry = db.Column(db.DateTime,
                         default=lambda: datetime.utcnow()-timedelta(minutes=10))
 
     # Remaining retries (decremented each time it's sent)
-    retries = Column(Integer, default=3)
+    retries = db.Column(db.Integer, default=3)
 
     # Callback was acknowledged
-    acknowledged = Column(Boolean, default=False)
+    acknowledged = db.Column(db.Boolean, default=False)
 
     def to_request(self, sign_key=None):
         """Generate json callback request
@@ -169,3 +129,14 @@ class Callback(Base, BaseMixin):
 
         return cls(**cb_kwargs)
 
+
+class Block(db.Model):
+    """Single row table to store the last monitored block number"""
+    __tablename__ = 'lastblock'
+
+    id = db.Column(db.Integer, primary_key=True, autoincrement=True)
+
+    # Height for the last monitored block
+    block_number = db.Column(db.Integer) 
+
+    #

@@ -6,6 +6,8 @@ DEBUG = True
 import os
 BASE_DIR = os.path.abspath(os.path.dirname(__file__))
 
+
+
 # Database
 SQLALCHEMY_DATABASE_URI = 'sqlite:///' + os.path.join(BASE_DIR, 'app.db')
 DATABASE_CONNECT_OPTIONS = {}
@@ -41,7 +43,17 @@ BITCOIN_CONF = {
     'CONFIRMATIONS': 3,
 
     # Bitcoin chain used 'testnet' or 'mainnet'
-    'CHAIN': 'testnet'}
+    'CHAIN': 'testnet',
+    
+    # Reload active subscriptions from DB during initialization
+    'RELOAD_SUBSCRIPTIONS': True,
+    
+    # Blockchain block where monitoring start
+    # 'last'-> Continue where the last execution stoped
+    # 'newest'-> Newest block
+    'START_BLOCK': 'last',
+    }
+
 
 # Callback task config
 #######################
@@ -55,11 +67,8 @@ CALLBACK_CONF = {
     # Timeout for unresponsive callbacks (seconds)
     'TIMEOUT': 3, 
 
-    # Callback threads 
-    'THREADS': 4,
-
-    # Callback signing key
-    'SIGNKEY_PATH': os.path.join(BASE_DIR, 'private.pem'),
+    # Number of callback sending threads 
+    'NTHREADS': 4,
 
     # Default callback POST url
     'POST_URL': "http://localhost:8080"}
