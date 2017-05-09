@@ -1,22 +1,28 @@
-from flask import Flask
-
 # Import SQLAlchemy
-from .bitcallback import create_app
+import logging
+import multiprocessing_logging
 
+from bitcallback.application import create_app
+from bitcallback.logger import LOGGING_FORMAT
 
 print("WHYYYYYYYYYYYYYYYYYYY")
-# Defime WSGI application object
-app, bitmon_q, callback_q  = create_app(__name__)
 
-from bitcallback.database import db_session, init_db
+# Initialize logging
+#logging.basicConfig(filename='error.log', format=LOGGING_FORMAT, level=logging.DEBUG)
+
+logging.basicConfig(format=LOGGING_FORMAT, level=logging.DEBUG)
+multiprocessing_logging.install_mp_handler()
+
+
+# Defime WSGI application object
+app  = create_app(__name__, 'config')
+
 # Automatically close session at the end of the request or
 # when the application shuts down
-@app.teardown_appcontext
-def shutdown_session(exception=None):
-    db_session.remove()
+#@app.teardown_appcontext
+#def shutdown_session(exception=None):
+#    db_session.remove()
 
-# Initialize database
-init_db()
 
 # Import API views
 import bitcallback.views

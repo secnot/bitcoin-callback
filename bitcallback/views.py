@@ -7,12 +7,12 @@ App JSON field views
 from copy import copy
 import pickle
 
-from bitcallback import app, bitmon_q, callback_q
+from bitcallback import app
+
 from flask import abort
 from flask_restplus import Resource, Api, reqparse, marshal_with, inputs
 
-from .database import db_session
-from .models import Subscription, Callback, SubscriptionState
+from .models import db, Subscription, Callback, SubscriptionState
 from .commands import *
 from .types import BitcoinAddress, iso8601
 from .common import unique_id
@@ -37,8 +37,7 @@ def build_url(base, params):
     Arguments:
         base (str): base
         params (dict): query paramenters
-    """
-
+    """ 
     query = ""
     first = True
     for param, value in params.items():
@@ -65,44 +64,50 @@ def build_paginated_url(base, params, page=DEFAULT_PAGE, per_page=DEFAULT_PER_PA
 @app.route('/test_callback')
 def test_callback():
     """Callback test view"""
-    s = Subscription.create(address='n4r9Ko71tH6t75iM4RuBwXKRn77vNiFBrb',
+    s = Subscription(address='n4r9Ko71tH6t75iM4RuBwXKRn77vNiFBrb',
                             callback_url='http://localhost:8080')
-
-    db_session.commit()
+    db.session.add(s)
+    db.session.commit()
 
     # Send new callback command to task
     subscription = SubscriptionData(s.id, s.address, s.callback_url, s.expiration)
-    command_data = CallbackData(unique_id(),
+    callback_data = CallbackData(unique_id(),
                                 subscription,
                                 "Transaction number",
                                 12)
 
-    callback_q.put((NEW_CALLBACK, pickle.dumps(command_data)))
+    app.callback_task.new_callback(callback_data)
 
-    return 'Created new callback {}'.format(command_data.id)
+    return 'Created new callback {}'.format(callback_data.id)
 
 
 @app.route('/test_subscription')
 def test_subscription():
     """Subscription test view"""
-    subscription = Subscription(address='n2SjFgAhHAv8PcTuq5x2e9sugcXDpMTzX7',
+    subscription = Subscription(address='mjgZHpD1AzEixLgcnncod5df6CntYK4Jpi',
                                 callback_url='http://localhost:8080')
-    db_session.add(subscription)
-    db_session.commit()
+    subscription1 = Subscription(address='mnoqv6wv6WEntuYG79YgyoW6ShNUWghsa6',
+                                callback_url='http://localhost:8080')
+    subscription2 = Subscription(address='mkKEgWc9fExYKsw1LhSDDV5wdszvZD33qy',
+                                callback_url='http://localhost:8080')
+    db.session.add(subscription)
+    db.session.add(subscription1)
+    db.session.add(subscription2)
+    db.session.commit()
 
     callback = Callback(subscription_id=subscription.id,
                         txid="Transaction number",
                         amount=12)
 
-    db_session.add(callback)
-    db_session.commit()
+    db.session.add(callback)
+    db.session.commit()
 
     # Send new subscription to bitcoin monitor task
     subscription_data = SubscriptionData(subscription.id,
                                          subscription.address,
                                          subscription.callback_url,
                                          subscription.expiration)
-    bitmon_q.put((NEW_SUBSCRIPTION, subscription_data))
+    app.bitmon_task.new_subscription(subscription_data)
 
     #print(Subscription.query.all())
     return 'Created new subscription! (id: {})'.format(subscription.id)
@@ -213,17 +218,15 @@ class SubscriptionList(Resource):
     def post(self):
         """Create new subscription"""
         args = subscription_parser.parse_args()
-        subs = Subscription.create(**args)
+        subs = Subscription(**args)
 
         # Commit subscription before signaling monitor task
-        db_session.commit()
+        db.session.add(subs)
+        db.session.commit()
 
         # Send new subscription message to bitcoin monitor task
-        subscription_data = SubscriptionData(subs.id,
-                                             subs.address,
-                                             subs.callback_url,
-                                             subs.expiration)
-        bitmon_q.put((NEW_SUBSCRIPTION, subscription_data))
+        subscription_data = subs.to_subscription_data()
+        app.bitmon_task.new_subscripition(subscription_data)
         return subs
 
 @subscription_ns.route('/<int:subscription_id>', endpoint='subscription_detail')
@@ -238,16 +241,16 @@ class SubscriptionDetail(Resource):
     @marshal_with(subscription_fields)
     def patch(self, subscription_id):
         """Cancel subscription"""
-        subs = Subscription.get_or_404(subscription_id)
+        subs = Subscription.query.get_or_404(subscription_id)
         args = subscription_patch_parser.parse_args()
 
         if subs.state != SubscriptionState.canceled:
             subs.state = args['state']
-            subs.save()
-            db_session.commit()
+            db.session.add(subs)
+            db.session.commit()
 
             # Send cancelation message to bitcoin monitor task
-            bitmon_q.put((CANCEL_SUBSCRIPTION, subs.id))
+            app.bitmon_task.cancel_subscription(subs.id)
         return subs
 
 
@@ -317,22 +320,22 @@ class CallbackDetail(Resource):
     @marshal_with(callback_fields)
     def get(self, callback_id):
         """Get callback details"""
-        return Callback.get_or_404(callback_id)
+        return Callback.query.get_or_404(callback_id)
 
     @marshal_with(callback_fields)
     def patch(self, callback_id):
         """Only for callback acknowledgment"""
-        callb = Callback.get_or_404(callback_id)
+        callb = Callback.query.get_or_404(callback_id)
         args = callback_patch_parser.parse_args()
 
         # Return error if the callbacks is already acknowledged
         if not callb.acknowledged:
             callb.acknowledged = args['acknowledged']
-            callb.save()
-            db_session.commit()
+            db.session.add(callb)
+            db.session.commit()
 
             # Send ack message to callback_task
-            callback_q.put((ACK_CALLBACK, callb.id))
+            app.callback_task.ack_callback(callb.id)
         else:
             abort(403, {'message': "Callback was already acknowledged"})
 
