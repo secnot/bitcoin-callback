@@ -9,21 +9,24 @@ These notifications are POST requests to the URL provided by the subscription.
 
 ## Overview
 
+Bitcoin callback is a layer between bitcoind and the client that provides
+a simple notification API.
+
 ![alt tag](docs/bitcoin_callback_dia.png)
 
-1. Subscribe to one or more bitcoin addresses, the client must provide a 
-   notification URL and an optional expiration date.
+1. Subscribe to a bitcoin address, must provide a notification URL and an 
+   optional expiration date.
 
-2. When a transaction to or from a subscribed address is detected bitcoin 
-   callback 'sends' a notification to the subscription url.
+2. When a transaction to or from a subscribed address is detected a callback 
+   request is *posted* to the subscription url.
 
-3. A notification is retrasmited periodically until the client acknowledges
+3. Callbacks are *reposted* periodically until the client acknowledges
    it's reception, or retry limit is reached.
 
-4. Client acknowledges the callback
+4. Client acknowledges the callback.
 
-5. The subscription is terminated by the client, the other way to terminate
-   a subscription is to wait until the expiration date is reached.
+5. The subscription is terminated by the client, the only other way to 
+   terminate a subscription is to wait until the expiration date.
 
 
 
