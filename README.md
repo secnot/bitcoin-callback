@@ -6,6 +6,7 @@ there is a transaction from or to one of them.
 
 These notifications are POST requests to the URL provided by the subscription.
 
+![alt tag](docs/bitcoin_callback_dia.png)
 
 
 ## API

@@ -97,6 +97,7 @@ class CallbackManager(object):
         callback_id, json, url = job
 
         try:
+            logger.debug("Sending callback {}".format(callback_id))
             requests.post(url, json=json, timeout=CALLBACK_REQUEST_TIMEOUT)
         except requests.RequestException:
             pass
