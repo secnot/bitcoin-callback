@@ -300,7 +300,7 @@ class CallbackTask(object):
 
                 elif cmd == ACK_CALLBACK:
                     # data: <commands.CallbackData.id> -> string
-                    logger.debug("Ack Callback (id: {})".format(data.id))
+                    logger.debug("Ack Callback (id: {})".format(data))
                     callback_manager.ack_callback(data)
 
                 elif cmd == EXIT_TASK:
@@ -320,7 +320,7 @@ class CallbackTask(object):
         self._input_q.put((NEW_CALLBACK, pickle.dumps(callback_data)))
 
     def ack_callback(self, callback_id):
-        self._input_q.put((ACK_CALLBACK, callb.id))
+        self._input_q.put((ACK_CALLBACK, callback_id))
 
     def close(self):
         self._input_q.put((EXIT_TASK, None))

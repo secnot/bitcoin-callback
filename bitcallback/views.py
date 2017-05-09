@@ -37,8 +37,7 @@ def build_url(base, params):
     Arguments:
         base (str): base
         params (dict): query paramenters
-    """
-
+    """ 
     query = ""
     first = True
     for param, value in params.items():
@@ -87,7 +86,13 @@ def test_subscription():
     """Subscription test view"""
     subscription = Subscription(address='mjgZHpD1AzEixLgcnncod5df6CntYK4Jpi',
                                 callback_url='http://localhost:8080')
+    subscription1 = Subscription(address='mnoqv6wv6WEntuYG79YgyoW6ShNUWghsa6',
+                                callback_url='http://localhost:8080')
+    subscription2 = Subscription(address='mkKEgWc9fExYKsw1LhSDDV5wdszvZD33qy',
+                                callback_url='http://localhost:8080')
     db.session.add(subscription)
+    db.session.add(subscription1)
+    db.session.add(subscription2)
     db.session.commit()
 
     callback = Callback(subscription_id=subscription.id,
@@ -241,8 +246,8 @@ class SubscriptionDetail(Resource):
 
         if subs.state != SubscriptionState.canceled:
             subs.state = args['state']
-            subs.save()
-            db_session.commit()
+            db.session.add(subs)
+            db.session.commit()
 
             # Send cancelation message to bitcoin monitor task
             app.bitmon_task.cancel_subscription(subs.id)
@@ -326,7 +331,7 @@ class CallbackDetail(Resource):
         # Return error if the callbacks is already acknowledged
         if not callb.acknowledged:
             callb.acknowledged = args['acknowledged']
-            callb.save()
+            db.session.add(callb)
             db.session.commit()
 
             # Send ack message to callback_task

@@ -66,6 +66,7 @@ class SubscriptionManager(object):
         for sub in active_subs:
             # Expired subscriptions will be discarded the first time poll_bitcoin
             # is called
+            logger.debug("Loaded Subscription: {}".format(sub))
             sub_data = SubscriptionData(sub.id, sub.address, 
                                         sub.callback_url, sub.expiration)
             self.add_subscription(sub_data)   
@@ -220,125 +221,6 @@ class SubscriptionManager(object):
 
 
 
-def bitcoin_task(input_q, callback_task, settings):
-    """
-    Argumenst:
-        input_q (multiprocessing.Queue): Command input queue
-            NEW_SUBSCRIPTION, CANCEL_SUBSCRIPTION, EXIT_TASK
-        callback_task (.callback_task.CallbackTask): callback delivery task
-        settings(dict): Configurations settings/constants
-    """
-    logger.debug("Task running")
-
-    last_update = time.perf_counter()
-    
-    # We need to create a new DB session for the process, the current
-    # one is also being used by flask main process
-    db_session = configure_db(settings['DB_URI'])
-
-    # Find block number where monitoring stoped last time
-    if settings['START_BLOCK'] == 'last':
-        with make_session_scope(db_session) as session:
-            try:
-                block = session.query(Block).one()
-                current_block = block.block_number
-            except sqlalchemy.orm.exc.NoResultFound:
-                current_block = -1 # Not found, start by last
-                block = Block(block_number=current_block)
-                session.add(block)
-    else:
-        current_block = -1
-    
-    # Flag used to mark bitcoind connection state
-    monitor_connected = False
-
-    # bitcoin chin selection
-    bitcoin.SelectParams(settings['CHAIN'])
-
-    # Transaction monitor is not provided so it is initialized by
-    # as if the connection has been lost
-    subscription_manager = SubscriptionManager(
-                                    None, # Transaction monitor
-                                    db_session,
-                                    settings['RELOAD_SUBSCRIPTIONS'])
-
-    ####################################################################
-    while True:
-
-        #
-        try:
-            cmd, data = input_q.get(block=True, timeout=1)
-            if cmd == NEW_SUBSCRIPTION:
-                logger.debug("New Subscription (id: {})".format(data.id))
-                subscription_manager.add_subscription(data)
-
-            elif cmd == CANCEL_SUBSCRIPTION:
-                logger.debug("Cancel Subscription (id: {})".format(data.id))
-                subscription_manager.cancel_subscription(data)
-
-            elif cmd == EXIT_TASK:
-                break
-
-        except queue.Empty:
-            pass
-
-        # Only periodical bitcoin updates and reconnect attempts
-        if time.perf_counter()-last_update < BITCOIN_UPDATE_PERIOD:
-            continue
-        else:
-            last_update = time.perf_counter()
-
-        # If connection was lost or not initialized try to reconnect
-        if not monitor_connected:
-
-            try:
-                proxy = bitcoin.rpc.Proxy(service_url=settings['BITCOIND_URL'])
-                monitor = TransactionMonitor(proxy, settings['CONFIRMATIONS'], current_block)
-                subscription_manager.set_transaction_monitor(monitor)
-                monitor_connected = True
-                logger.info("Bitcoind connected")
-            except (ConnectionError, bitcoin.rpc.InWarmupError) as err:
-                logger.debug("Bitcoind reconnect error: {}".format(err.__class__.__name__))
-                continue
-            except Exception as err:
-                logger.error(err, exc_info=True)
-                continue
-
-        # Look for new confirmed transactions and create required callbacks
-        try:
-            callbacks = subscription_manager.poll_bitcoin()
-
-            # If the block number has changed it means that a new block has 
-            # been accepted, so we need to save the number to db
-            if current_block != subscription_manager.current_block:
-                current_block = subscription_manager.current_block
-                with make_session_scope(db_session) as session:
-                    block = session.query(Block).one()
-                    block.block_number = current_block
-                    session.add(block)
-
-        except (json.JSONDecodeError, ConnectionError) as err:
-            # This error is raised when connection to bitcoind is lost.
-            subscription_manager.set_transaction_monitor(None)
-            monitor_connected = False
-            logger.info("Bitcoind connection lost")
-            continue
-        except Exception as err:
-            subscription_manager.set_transaction_monitor(None)
-            monitor_connected = False
-            logger.error(err, exc_info=True)
-            continue
-
-        # Send Callbacks to notification task
-        for cback in callbacks:
-            logger.debug("New callback: {}".format(cback.id))
-            callback_task.new_callback(cback)
-
-    # Close resource before exiting
-    input_q.close()
-    exit(0)
-
-
 class BitmonTask(object):
 
     QUEUE_SIZE = 4000
@@ -348,10 +230,170 @@ class BitmonTask(object):
         
         settings = {'DB_URI': config['SQLALCHEMY_DATABASE_URI']}
         settings.update(config['BITCOIN_CONF'])
-
-        self._task = Process(target=bitcoin_task,
+        self._settings = settings
+        self._callback_task = callback_task
+        self._task = Process(target=self.bitcoin_task,
                              args=(self._input_q, callback_task, settings))
         self._task.start()
+
+    def _init_task(self, settings):
+        """Initialize task after process is forked"""
+        # Last time bitcoind was polled or reconnect tried
+        self._last_update = time.perf_counter()
+ 
+        # We need to create a new DB session for the process, because the
+        # one used by flask can be only be share between threads.
+        self._db_session = configure_db(self._settings['DB_URI'])
+
+        # Find block number where monitoring stoped last time
+        self._current_block = -1 # Start by newest block
+
+        if self._settings['START_BLOCK'] == 'last':
+            with make_session_scope(self._db_session) as session:
+                try:
+                    block = session.query(Block).one()
+                    self._current_block = block.block_number
+                except sqlalchemy.orm.exc.NoResultFound:
+                    # Not found, it can happen the first time the app is executed
+                    # so there is no need to log the exception
+                    pass
+        
+        # bitcoin lib chain selection
+        bitcoin.SelectParams(self._settings['CHAIN'])
+    
+        # It will be initialized later by reconnect code
+        self._monitor = None
+ 
+        # Transaction monitor is not provided so it is not initialized here
+        # so it's treated later as if the connection was lost.
+        self._subscription_manager = SubscriptionManager(
+                                        self._monitor, # Init later
+                                        self._db_session,
+                                        settings['RELOAD_SUBSCRIPTIONS'])
+
+    def _save_block_number(self, block_number):
+        """Save block number into db, create row if it doesn't exist, update
+        if it does.
+        
+        Arguments:
+            block_number (int): positive integer
+        """
+        assert isinstance(block_number, int) and block_number>=0
+
+        with make_session_scope(self._db_session) as session:
+            try:
+                block = session.query(Block).one()
+                block.block_number = block_number
+                session.add(block)
+            except sqlalchemy.orm.exc.NoResultFound:
+                block = Block(block_number=block_number)
+                session.add(block)
+
+    def _connect_bitcoind(self):
+        """
+        Try to reconnect to bitcoind server
+
+        Returns:
+            (bool): True if was reconnected false otherwise
+        """
+        try:
+            proxy = bitcoin.rpc.Proxy(service_url=self._settings['BITCOIND_URL'])
+            monitor = TransactionMonitor(proxy, self._settings['CONFIRMATIONS'], 
+                                         self._current_block)
+            self._subscription_manager.set_transaction_monitor(monitor)
+            self._monitor = monitor
+            logger.info("Bitcoind connected")
+            return True
+        except (ConnectionError, bitcoin.rpc.InWarmupError) as err:
+            logger.debug("Bitcoind reconnect error: {}".format(err.__class__.__name__))
+        except Exception as err:
+            logger.error(err, exc_info=True)
+        
+        return False
+
+    def _send_confirmed(self):
+        """Look for new confirmed transactions, and send corresponding callbacks
+        to callback task
+        """
+        try:
+            callbacks = self._subscription_manager.poll_bitcoin()
+
+        except (json.JSONDecodeError, ConnectionError) as err:
+            # This error is raised when connection to bitcoind is lost.
+            subscription_manager.set_transaction_monitor(None)
+            monitor_connected = False
+            logger.info("Bitcoind connection lost")
+        except Exception as err:
+            subscription_manager.set_transaction_monitor(None)
+            monitor_connected = False
+            logger.error(err, exc_info=True)
+
+        # Send Callbacks to notification task
+        for cback in callbacks:
+            logger.debug("New callback: {}".format(cback.id))
+            self._callback_task.new_callback(cback)
+
+        # If the block number has changed it means that a new block has 
+        # been accepted, so we need to save the number to db. It is saved
+        # after the callbacks are sent for data consistency.
+        new_block = self._subscription_manager.current_block
+        if self._current_block != new_block:
+            self._save_block_number(new_block)
+            self._current_block = new_block
+
+    def bitcoin_task(self, input_q, callback_task, settings):
+        """
+        Arguments:
+            input_q (multiprocessing.Queue): Command input queue
+                NEW_SUBSCRIPTION, CANCEL_SUBSCRIPTION, EXIT_TASK
+            callback_task (.callback_task.CallbackTask): callback delivery task
+            settings(dict): Configurations settings/constants
+        """
+        self._init_task(self._settings)
+        logger.debug("Task running")
+
+        # Main dispatch loop
+        while True:
+
+            try:
+                cmd, data = input_q.get(block=True, timeout=1)
+                if cmd == NEW_SUBSCRIPTION:
+                    logger.debug("New Subscription (id: {})".format(data.id))
+                    self._subscription_manager.add_subscription(data)
+
+                elif cmd == CANCEL_SUBSCRIPTION:
+                    logger.debug("Cancel Subscription (id: {})".format(data.id))
+                    self._subscription_manager.cancel_subscription(data)
+
+                elif cmd == EXIT_TASK:
+                    break
+
+                else:
+                    logger.debug("Unknown command {}".format(cmd))
+
+            except queue.Empty:
+                pass
+
+            # Only periodical bitcoin updates and reconnect attempts
+            if time.perf_counter()-self._last_update < BITCOIN_UPDATE_PERIOD:
+                continue
+            else:
+                self._last_update = time.perf_counter()
+
+            # If connection was lost or not initialized try to reconnect
+            if self._monitor is None:
+                if not self._connect_bitcoind():
+                    continue
+       
+            # Send confirmed callbacks if any
+            self._send_confirmed()
+
+        # Close resource before exiting
+        input_q.close()
+        exit(0)
+    
+    # USED BY FLASK MAIN PROCESS
+    ############################
 
     def new_subscription(self, subscription_data):
         self._input_q.put((NEW_SUBSCRIPTION, subscription_data))
