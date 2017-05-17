@@ -62,7 +62,8 @@ class SubscriptionManager(object):
         with make_session_scope(self._db_session) as session:
             active_subs = session.query(Subscription).filter_by(
                     state=SubscriptionState.active).all()
-        
+       
+        logger.info("{} Subscriptions".format(len(active_subs)))
         for sub in active_subs:
             # Expired subscriptions will be discarded the first time poll_bitcoin
             # is called
@@ -191,10 +192,12 @@ class SubscriptionManager(object):
     def poll_bitcoin(self):
         """Poll bitcoin blockchain for transactions to or from one of
         the monitored addresses"""
+        if self._monitor is None:
+            return []
+
         # Removed expired subscriptions before generating callbacks
         self._remove_expired_subscriptions()
 
-        logger.debug("BLOCK: {}".format(self._monitor.current_block))
         #
         transactions = self._monitor.get_confirmed()
 
@@ -298,6 +301,12 @@ class BitmonTask(object):
         """
         try:
             proxy = bitcoin.rpc.Proxy(service_url=self._settings['BITCOIND_URL'])
+            
+            # Check it's a valid connection, bitcoin proxy is lazy and doesn't 
+            # connect until there is a request.
+            count = proxy.getblockcount()
+
+            # Create new monitor and subscribe to all monitored addresses
             monitor = TransactionMonitor(proxy, self._settings['CONFIRMATIONS'], 
                                          self._current_block)
             self._subscription_manager.set_transaction_monitor(monitor)
@@ -315,18 +324,21 @@ class BitmonTask(object):
         """Look for new confirmed transactions, and send corresponding callbacks
         to callback task
         """
+        callbacks = []
+
         try:
             callbacks = self._subscription_manager.poll_bitcoin()
-
         except (json.JSONDecodeError, ConnectionError) as err:
             # This error is raised when connection to bitcoind is lost.
-            subscription_manager.set_transaction_monitor(None)
-            monitor_connected = False
+            self._subscription_manager.set_transaction_monitor(None)
+            self._monitor = None
             logger.info("Bitcoind connection lost")
+            return
         except Exception as err:
-            subscription_manager.set_transaction_monitor(None)
-            monitor_connected = False
+            self._subscription_manager.set_transaction_monitor(None)
+            self._monitor = None
             logger.error(err, exc_info=True)
+            return
 
         # Send Callbacks to notification task
         for cback in callbacks:
@@ -334,10 +346,10 @@ class BitmonTask(object):
             self._callback_task.new_callback(cback)
 
         # If the block number has changed it means that a new block has 
-        # been accepted, so we need to save the number to db. It is saved
-        # after the callbacks are sent for data consistency.
+        # been accepted, so we need to save the number to db.
         new_block = self._subscription_manager.current_block
         if self._current_block != new_block:
+            logger.debug("New block: {}".format(new_block))
             self._save_block_number(new_block)
             self._current_block = new_block
 
@@ -350,7 +362,7 @@ class BitmonTask(object):
             settings(dict): Configurations settings/constants
         """
         self._init_task(self._settings)
-        logger.debug("Task running")
+        logger.debug("Bitmon task running")
 
         # Main dispatch loop
         while True:

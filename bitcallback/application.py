@@ -3,21 +3,26 @@
 Create and initialize flask app and async tasks
 """
 import atexit
-from flask import Flask
+import tempfile
 
+from flask import Flask
 from bitcallback.bitmon_task import BitmonTask
 from bitcallback.callback_task import CallbackTask
 
 from bitcallback.models import db
 
 
-def create_app(name, config_file):
-    """See http://stackoverflow.com/questions/14384739/how-can-i-add-a-background-thread-to-flask"""
 
-    app = Flask(name)
-    app.config.from_object(config_file)
-    #TODO: Use Config from object
+def init_app(app):
+    """
+    Initialize flask app database and create tasks.
 
+    Arguments:
+        app: Uninitialized flask app with loaded configuration
+
+    Returns:
+        initialized flask app
+    """
     # Initialize and start bitcoin and callback processes
     app.callback_task = CallbackTask(app.config)
     app.bitmon_task = BitmonTask(app.callback_task, app.config)
@@ -39,6 +44,8 @@ def create_app(name, config_file):
     atexit.register(clean_up)
 
     return app
+
+
 
 def create_db():
     # Create all database tables

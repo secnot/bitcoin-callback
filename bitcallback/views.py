@@ -60,58 +60,6 @@ def build_paginated_url(base, params, page=DEFAULT_PAGE, per_page=DEFAULT_PER_PA
     return build_url(base, query)
 
 
-# TODO: Test views, remove before release
-@app.route('/test_callback')
-def test_callback():
-    """Callback test view"""
-    s = Subscription(address='n4r9Ko71tH6t75iM4RuBwXKRn77vNiFBrb',
-                            callback_url='http://localhost:8080')
-    db.session.add(s)
-    db.session.commit()
-
-    # Send new callback command to task
-    subscription = SubscriptionData(s.id, s.address, s.callback_url, s.expiration)
-    callback_data = CallbackData(unique_id(),
-                                subscription,
-                                "Transaction number",
-                                12)
-
-    app.callback_task.new_callback(callback_data)
-
-    return 'Created new callback {}'.format(callback_data.id)
-
-
-@app.route('/test_subscription')
-def test_subscription():
-    """Subscription test view"""
-    subscription = Subscription(address='mjgZHpD1AzEixLgcnncod5df6CntYK4Jpi',
-                                callback_url='http://localhost:8080')
-    subscription1 = Subscription(address='mnoqv6wv6WEntuYG79YgyoW6ShNUWghsa6',
-                                callback_url='http://localhost:8080')
-    subscription2 = Subscription(address='mkKEgWc9fExYKsw1LhSDDV5wdszvZD33qy',
-                                callback_url='http://localhost:8080')
-    db.session.add(subscription)
-    db.session.add(subscription1)
-    db.session.add(subscription2)
-    db.session.commit()
-
-    callback = Callback(subscription_id=subscription.id,
-                        txid="Transaction number",
-                        amount=12)
-
-    db.session.add(callback)
-    db.session.commit()
-
-    # Send new subscription to bitcoin monitor task
-    subscription_data = SubscriptionData(subscription.id,
-                                         subscription.address,
-                                         subscription.callback_url,
-                                         subscription.expiration)
-    app.bitmon_task.new_subscription(subscription_data)
-
-    #print(Subscription.query.all())
-    return 'Created new subscription! (id: {})'.format(subscription.id)
-
 
 
 # PAGINATION
@@ -226,7 +174,7 @@ class SubscriptionList(Resource):
 
         # Send new subscription message to bitcoin monitor task
         subscription_data = subs.to_subscription_data()
-        app.bitmon_task.new_subscripition(subscription_data)
+        app.bitmon_task.new_subscription(subscription_data)
         return subs
 
 @subscription_ns.route('/<int:subscription_id>', endpoint='subscription_detail')

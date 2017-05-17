@@ -7,6 +7,15 @@ there is a transaction from or to one of them.
 These notifications are POST requests to the URL provided by the subscription.
 
 
+## Installation
+
+Download the package or clone the repository and then install with
+
+```bash
+	$ python3 setup.py install
+```
+
+
 ## Overview
 
 Bitcoin callback is a layer between bitcoind and the client that provides

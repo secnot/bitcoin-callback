@@ -81,6 +81,7 @@ class CallbackManager(object):
 
         # Add unfinished to retry queue.
         pending = sorted(pending, key=lambda c: c.last_retry)
+        logger.info("{} Pending callbacks".format(len(pending)))
         with self._lock:
             for cback in pending:
                 record = CallbackRecord(cback.id, cback.retries, cback.last_retry)
@@ -274,7 +275,7 @@ class CallbackTask(object):
             input_q (multiprocessing.Queue): command input ()
             settings (dict):
         """
-        logger.debug("Task running")
+        logger.debug("Callback task running")
         
         # We need to create a new DB session for the process, the existing
         # one can only be used by flask main process and its threads
